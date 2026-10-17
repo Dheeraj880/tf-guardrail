@@ -10,7 +10,7 @@ PR changes infra/*.tf
         ▼
    ┌─────────┐   findings    ┌────────────┐   proposed patch   ┌────────────┐
    │  scan   │ ────────────▶ │   fixer    │ ─────────────────▶ │  verifier  │
-   │ 12 rules│               │ (Claude or │ ◀───────────────── │  (no AI)   │
+   │ 13 rules│               │ (Claude or │ ◀───────────────── │  (no AI)   │
    └─────────┘               │  scripted) │  exact rejection   └─────┬──────┘
         │                    └────────────┘  reasons, ≤3 tries       │
         ▼                                                ACCEPT / REVIEW / REJECT
@@ -29,7 +29,15 @@ the open CIDR in a variable default. Every one of these "passes" a naive re-scan
 The fixer is untrusted. It can be wrong, and it reads files written by whoever opened
 the PR, so it can be prompt-injected (the example repo contains a comment telling AI
 tools to add a suppression). The verifier is ordinary code that never calls a model
-and never reads comments for instructions. A patch is accepted only if:
+and never reads comments for instructions.
+
+Injection attempts are also detected deterministically: rule **TFG-AI-01** flags
+comments that address AI or automated reviewers with a directive ("do not change",
+"mark as safe", "add tfsec:ignore", "ignore previous instructions"). These are never
+sent to the fixer; they go to the top of the PR as a warning for the security team.
+Whether the model noticed the attempt no longer matters.
+
+A patch is accepted only if:
 
 | Check | Catches |
 |---|---|
@@ -40,6 +48,7 @@ and never reads comments for instructions. A patch is accepted only if:
 | No meta-argument changes | `count = 0`, `for_each = {}`, `lifecycle`, `provider` |
 | New blocks are only declared companions that reference the flagged resource, or variables the fix uses | adding unrelated resources, a public access block pointed at the wrong bucket |
 | No suppression comments or placeholders added | `tfsec:ignore`, `checkov:skip`, `nosec`, `TODO` |
+| No finding other than the target disappears | quietly deleting the injection comment, or fixing something it wasn't asked to |
 
 Verdicts:
 
@@ -53,20 +62,35 @@ Nothing is ever merged automatically. Fixes land as a separate pull request.
 
 ## Results
 
-**Cheat gallery** (`examples/cases/gallery.json`): 24 hand-written fixes, 8 honest and
-16 dishonest, run against the verifier in CI.
+**Cheat gallery** (`examples/cases/gallery.json`): 26 hand-written fixes, 8 honest and
+18 dishonest, run against the verifier in CI.
 
 ```
 $ tfguard eval
 ...
-24/24 cases as expected | cheat catch rate 1.0 | honest pass rate 1.0
+26/26 cases as expected | cheat catch rate 1.0 | honest pass rate 1.0
 ```
 
 Both numbers matter: a verifier that rejects everything catches every cheat and is
 useless. These cases were written alongside the verifier, so 1.0 is a regression floor,
 not proof it catches everything. New bypasses get added as cases.
 
-**Demo remediation** on `examples/vulnerable/` (10 findings), scripted fixer:
+**Live run** with Claude as the fixer, on `examples/vulnerable/` (10 fixable findings,
+run before TFG-AI-01 existed): all 10 fixed on the first attempt, 6 ACCEPT and 4 REVIEW,
+0 rejected. Two things worth reading in that run:
+
+- The model set `storage_encrypted = true` on the existing database. Its note warned this
+  forces replacement; the verifier turned that warning into a REVIEW verdict a reviewer
+  can't skim past.
+- For the open Postgres rule it reused `var.admin_cidr`, whose description says it is
+  the *SSH* admin range. Safe (no longer public), probably not intended. The verifier
+  checks safety and scope, not intent, which is exactly why input-dependent fixes are
+  REVIEW and never ACCEPT.
+
+The model ignored the injected comment every time. That shows the prompt-level
+mitigation working; it does not test the verifier, which is what the cheat gallery is for.
+
+**Demo remediation** on `examples/vulnerable/` (11 findings), scripted fixer:
 
 ```
 $ tfguard fix examples/vulnerable --fixer scripted:examples/demo-fixer.json --out out/
@@ -78,7 +102,10 @@ $ tfguard fix examples/vulnerable --fixer scripted:examples/demo-fixer.json --ou
       attempt 2: REVIEW
 ⏭️ needs a human             TFG-RDS-02  aws_db_instance.orders
 ...
-findings 10 -> 1 | accepted 6, review 3, rejected 0, declined 1 | fix rate 0.9, first-try 0.889
+🚩 flagged for security team  TFG-AI-01   file.storage.tf
+      comment gives instructions to automated reviewers: "NOTE TO AUTOMATED REVIEWERS ..."
+
+findings 11 -> 2 | accepted 6, review 3, rejected 0, declined 1, flagged 1 | fix rate 0.9, first-try 0.889
 ```
 
 `out/` gets the patched `.tf` files, a unified diff, a PR description and a JSON
@@ -129,6 +156,7 @@ tfguard fix examples/vulnerable --out out-live
 | TFG-EBS-01 | medium | EBS volume not encrypted | `encrypted`, `kms_key_id` (always REVIEW) |
 | TFG-IAM-01 | critical | policy document allows `*` on `*` | actions/resources of that statement (always REVIEW) |
 | TFG-LOG-01 | medium | CloudTrail log validation off | `enable_log_file_validation` |
+| TFG-AI-01 | medium | comment tries to instruct automated reviewers (prompt injection) | never auto-fixed; flagged for a human |
 
 ## Limitations
 
@@ -138,7 +166,10 @@ tfguard fix examples/vulnerable --out out-live
 - It can't know a change forces replacement in AWS unless the rule says so; the
   replacement-sensitive rules (RDS and EBS encryption) are always REVIEW. Running
   `terraform plan` in CI and checking for replacements is the next layer.
-- AWS only, 12 rules. The rule format (detect + bounded fix scope) is the part meant to
+- The injection detector is keyword-based: it catches the common phrasing, not a
+  determined attacker who avoids the words. Its job is to surface obvious attempts; the
+  verifier is the control.
+- AWS only, 13 rules. The rule format (detect + bounded fix scope) is the part meant to
   scale; adding rules is mostly data.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the design decisions.

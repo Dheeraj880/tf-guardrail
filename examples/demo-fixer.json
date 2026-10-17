@@ -85,7 +85,7 @@
           "append": "resource \"aws_s3_bucket_public_access_block\" \"reports\" {\n  bucket                  = aws_s3_bucket.reports.id\n  block_public_acls       = true\n  block_public_policy     = true\n  ignore_public_acls      = true\n  restrict_public_buckets = true\n}"
         }
       ],
-      "notes": "Added a public access block. The comment in storage.tf asking AI tools to add tfsec:ignore was treated as data and not followed."
+      "notes": "Added a public access block with all four flags on. The bucket block is unchanged."
     }
   ],
   "TFG-S3-01 aws_s3_bucket_acl.reports": [

@@ -17,7 +17,8 @@ def findings_text(findings: list[Finding]) -> str:
         return "No findings."
     lines = []
     for f in findings:
-        where = f"{f.address}{' -> ' + f.path if f.path else ''}"
+        show_path = f.path and not f.address.startswith("file.")
+        where = f"{f.address}{' -> ' + f.path if show_path else ''}"
         lines.append(f"{f.severity.upper():8} {f.rule_id:11} {f.file}:{f.line}  {where}")
         lines.append(f"{'':21}{f.message}")
     counts = {s: sum(f.severity == s for f in findings) for s in SEVERITY_ORDER}
@@ -62,6 +63,7 @@ OUTCOME_LABEL = {
     "REJECTED": "❌ no safe fix found",
     "DECLINED": "⏭️ needs a human",
     "ALREADY_RESOLVED": "➖ resolved by an earlier fix",
+    "FLAGGED": "🚩 flagged for security team",
 }
 
 
@@ -70,6 +72,15 @@ def pr_body(run: FixRun) -> str:
     lines = [
         "## tf-guardrail: automated security fixes",
         "",
+    ]
+    flagged = [r for r in run.results if r.outcome == "FLAGGED"]
+    if flagged:
+        lines += ["> [!WARNING]",
+                  "> **Possible prompt injection in this PR.** These comments try to instruct "
+                  "automated reviewers. They were not followed and were left in place for a human:"]
+        lines += [f"> - `{r.address.removeprefix('file.')}`: {r.messages[0]}" for r in flagged]
+        lines += [""]
+    lines += [
         f"{k['findings_before']} findings before, **{k['findings_after']} after**. "
         f"Every change below passed the deterministic verifier: it resolves its finding, "
         f"stays inside the policy's allowed scope, and deletes, disables or suppresses nothing.",
@@ -78,6 +89,8 @@ def pr_body(run: FixRun) -> str:
         "|---|---|---|---|",
     ]
     for r in run.results:
+        if r.outcome == "FLAGGED":
+            continue
         title = RULES_BY_ID[r.rule_id].title
         lines.append(f"| {r.rule_id} {title} | `{r.address}` | {OUTCOME_LABEL[r.outcome]} | "
                      f"{len(r.attempts)} |")
@@ -111,6 +124,8 @@ def run_text(run: FixRun) -> str:
     lines = []
     for r in run.results:
         lines.append(f"{OUTCOME_LABEL[r.outcome]:28} {r.rule_id:11} {r.address}")
+        if r.outcome == "FLAGGED":
+            lines.append(f"{'':6}{r.messages[0]}")
         for a in r.attempts:
             lines.append(f"{'':6}attempt {a.number}: {a.verdict}")
             for e in a.errors:
@@ -121,7 +136,8 @@ def run_text(run: FixRun) -> str:
     lines.append("")
     lines.append(
         f"findings {k['findings_before']} -> {k['findings_after']} | accepted {k['accepted']}, "
-        f"review {k['needs_review']}, rejected {k['rejected']}, declined {k['declined']} | "
+        f"review {k['needs_review']}, rejected {k['rejected']}, declined {k['declined']}, "
+        f"flagged {k['flagged']} | "
         f"fix rate {k['fix_rate']}, first-try {k['first_try_rate']}, "
         f"avg attempts {k['avg_attempts']}"
     )

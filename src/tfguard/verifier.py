@@ -148,6 +148,12 @@ def verify(
     for f in after_findings:
         if f.key not in before_keys:
             errors.append(Issue("NEW_FINDING", f"{f.rule_id}: {f.message}", f.address))
+    target_keys = {t.key for t in targets}
+    for f in before_findings:
+        if f.key not in after_keys and f.key not in target_keys:
+            # e.g. quietly deleting the injection comment while fixing something else
+            errors.append(Issue("COLLATERAL", f"also made {f.rule_id} disappear ({f.message[:70]}); "
+                                "a fix may only resolve its own finding", f.address))
 
     # 3. Nothing deleted or renamed.
     before_blocks, after_blocks = before.by_address(), after.by_address()

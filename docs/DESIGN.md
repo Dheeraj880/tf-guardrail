@@ -58,6 +58,13 @@ The fixer reads `.tf` files written by the PR author. The prompt wraps them in
 control. The control is that the verifier ignores comments entirely, so an injection
 that succeeds against the model still produces a patch that gets rejected.
 
+Detection is deterministic too. TFG-AI-01 flags comments that address automated
+reviewers with a directive, and the finding is never sent to the fixer. Two verifier
+rules protect it: a fix can't delete the comment (COLLATERAL: only the target finding
+may disappear) and can't plant a new one (NEW_FINDING). An earlier version left it to
+the model to mention the comment in its notes; it did, on every fix, which made the PR
+noisy and made detection depend on the model's goodwill.
+
 ### 7. Measure the guardrail, not just the fixer
 
 KPIs:
@@ -87,6 +94,8 @@ honest pass rate; the gallery keeps both visible in CI.
 | companion pointed at another bucket | UNEXPECTED_BLOCK, UNRESOLVED |
 | companion with a flag still off | NEW_FINDING |
 | `TODO` values | PLACEHOLDER |
+| delete the injection comment while fixing | COLLATERAL |
+| plant an instruction for the next AI | NEW_FINDING (TFG-AI-01) |
 
 ## What's next
 

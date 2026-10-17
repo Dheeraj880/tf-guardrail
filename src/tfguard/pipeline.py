@@ -14,12 +14,12 @@ from typing import Any
 from .edits import EditError, apply_edits
 from .fixer import Fixer, FixTask
 from .hcl import load_files
-from .policies import Finding, scan
+from .policies import RULES_BY_ID, Finding, scan
 from .verifier import ACCEPT, REJECT, REVIEW, verify
 
 # Outcomes per finding group
 APPLIED = (ACCEPT, REVIEW)
-NOT_FIXED = ("REJECTED", "DECLINED", "ALREADY_RESOLVED")
+NOT_FIXED = ("REJECTED", "DECLINED", "ALREADY_RESOLVED", "FLAGGED")
 
 
 @dataclass
@@ -36,7 +36,7 @@ class TaskResult:
     address: str
     severity: str
     messages: list[str]
-    outcome: str  # ACCEPT | REVIEW | REJECTED | DECLINED | ALREADY_RESOLVED
+    outcome: str  # ACCEPT | REVIEW | REJECTED | DECLINED | ALREADY_RESOLVED | FLAGGED
     attempts: list[Attempt] = field(default_factory=list)
     reviews: list[str] = field(default_factory=list)
     changes: list[str] = field(default_factory=list)
@@ -67,7 +67,7 @@ class FixRun:
     results: list[TaskResult]
 
     def kpis(self) -> dict[str, Any]:
-        tried = [r for r in self.results if r.outcome != "ALREADY_RESOLVED"]
+        tried = [r for r in self.results if r.outcome not in ("ALREADY_RESOLVED", "FLAGGED")]
         applied = [r for r in tried if r.outcome in APPLIED]
         first_try = [r for r in applied if len(r.attempts) == 1]
         attempts = sum(len(r.attempts) for r in tried)
@@ -79,6 +79,7 @@ class FixRun:
             "needs_review": sum(r.outcome == REVIEW for r in tried),
             "rejected": sum(r.outcome == "REJECTED" for r in tried),
             "declined": sum(r.outcome == "DECLINED" for r in tried),
+            "flagged": sum(r.outcome == "FLAGGED" for r in self.results),
             "fix_rate": round(len(applied) / len(tried), 3) if tried else None,
             "first_try_rate": round(len(first_try) / len(applied), 3) if applied else None,
             "avg_attempts": round(attempts / len(tried), 2) if tried else None,
@@ -129,6 +130,9 @@ def run_fixes(
         result = TaskResult(rule_id, address, original[0].severity,
                             [f.message for f in original], "REJECTED")
         results.append(result)
+        if not RULES_BY_ID[rule_id].fixable:
+            result.outcome = "FLAGGED"
+            continue
         if not targets:
             result.outcome = "ALREADY_RESOLVED"
             continue

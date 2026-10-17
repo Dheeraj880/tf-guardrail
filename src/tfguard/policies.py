@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .hcl import Block, Module, references
+from .injection import find_injections, fingerprint
 
 Violation = tuple[str, str]  # (attribute path, message)
 
@@ -44,6 +45,7 @@ class Rule:
     companions: tuple[Companion, ...] = ()
     review_reason: str = ""  # set when every fix for this rule needs human sign-off
     guidance: str = ""
+    fixable: bool = True  # False: report to humans, never send to the fixer
 
 
 @dataclass(frozen=True)
@@ -382,6 +384,15 @@ RULES: tuple[Rule, ...] = (
         ),
     ),
     Rule(
+        "TFG-AI-01", "Comment tries to instruct automated reviewers (prompt injection)", "medium",
+        "file", (), lambda block, module: [],
+        fixable=False,
+        guidance=(
+            "Not auto-fixed. The comment is evidence of an attempt to manipulate the review "
+            "pipeline; a human should read it and decide whether to remove it."
+        ),
+    ),
+    Rule(
         "TFG-LOG-01", "CloudTrail log file validation is disabled", "medium",
         "resource", ("aws_cloudtrail",), _check_cloudtrail_validation,
         fix_paths=("enable_log_file_validation",),
@@ -390,6 +401,10 @@ RULES: tuple[Rule, ...] = (
 )
 
 RULES_BY_ID = {r.id: r for r in RULES}
+
+
+def _clip(text: str, limit: int = 140) -> str:
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " ..."
 
 
 def scan(module: Module, rules: tuple[Rule, ...] = RULES) -> list[Finding]:
@@ -403,6 +418,12 @@ def scan(module: Module, rules: tuple[Rule, ...] = RULES) -> list[Finding]:
                     Finding(rule.id, rule.severity, block.address, path, message,
                             block.file, block.line)
                 )
+    if any(r.id == "TFG-AI-01" for r in rules):
+        for hit in find_injections(module.files):
+            findings.append(
+                Finding("TFG-AI-01", "medium", f"file.{hit.file}", fingerprint(hit.text),
+                        f'comment {hit.reason}: "{_clip(hit.text)}"', hit.file, hit.line)
+            )
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     findings.sort(key=lambda f: (order.get(f.severity, 9), f.file, f.line, f.rule_id, f.path))
     return findings

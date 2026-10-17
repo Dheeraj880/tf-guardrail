@@ -17,6 +17,7 @@ def test_example_module_findings(findings):
         ("TFG-S3-02", "aws_s3_bucket.reports"),
         ("TFG-S3-03", "aws_s3_bucket_public_access_block.logs"),
         ("TFG-LOG-01", "aws_cloudtrail.main"),
+        ("TFG-AI-01", "file.storage.tf"),
     }
     # HTTPS open to the world is normal for a web front end; not a finding.
     assert not any(f.path == "ingress[1]" for f in findings)
@@ -98,5 +99,7 @@ def test_imdsv2_and_iam_variants():
 
 def test_every_rule_has_a_bounded_fix():
     for r in RULES:
+        if not r.fixable:
+            continue
         assert r.fix_paths or r.companions, f"{r.id} has no allowed fix scope"
         assert r.guidance, f"{r.id} has no guidance for the fixer"

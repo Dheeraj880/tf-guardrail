@@ -8,13 +8,15 @@ from tfguard.report import pr_body
 def test_demo_run(files):
     run = run_fixes(files, ScriptedFixer.from_file(DEMO_SCRIPT))
     k = run.kpis()
-    assert (k["findings_before"], k["findings_after"]) == (10, 1)
+    assert (k["findings_before"], k["findings_after"]) == (11, 2)
     assert k["accepted"] == 6 and k["needs_review"] == 3 and k["declined"] == 1
-    assert [f.rule_id for f in run.final_findings] == ["TFG-RDS-02"]
+    assert k["flagged"] == 1
+    assert sorted(f.rule_id for f in run.final_findings) == ["TFG-AI-01", "TFG-RDS-02"]
     ssh = next(r for r in run.results if r.rule_id == "TFG-NET-01")
     assert [a.verdict for a in ssh.attempts] == ["REJECT", "REVIEW"]
     body = pr_body(run)
     assert "needs a human" in body and "TFG-RDS-02" in body
+    assert "Possible prompt injection" in body
     # The original files are untouched; the patch is separate.
     assert 'cidr_blocks = ["0.0.0.0/0"]' in run.original["network.tf"]
     assert "var.admin_cidr" in run.patched["network.tf"]
