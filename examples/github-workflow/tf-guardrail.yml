@@ -1,0 +1,66 @@
+# Drop this into .github/workflows/ of a repo with Terraform in ./infra.
+#
+#   pull_request        -> scan, upload findings to GitHub code scanning, fail on high+
+#   label "tfguard-fix" -> propose fixes, verify them, open a PR with only verified changes
+#
+# The fix job needs an ANTHROPIC_API_KEY repository secret. It never pushes to the
+# PR branch: it opens a separate PR that a human reviews and merges.
+name: tf-guardrail
+
+on:
+  pull_request:
+    paths: ["infra/**.tf"]
+    types: [opened, synchronize, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "tf-guardrail @ git+https://github.com/Dheeraj880/tf-guardrail"
+      - name: Scan (SARIF)
+        run: tfguard scan infra --format sarif --output tfguard.sarif --sarif-base infra --fail-on none
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfguard.sarif
+          category: tf-guardrail
+      - name: Gate
+        run: tfguard scan infra --fail-on high
+
+  fix:
+    if: contains(github.event.pull_request.labels.*.name, 'tfguard-fix')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "tf-guardrail[ai] @ git+https://github.com/Dheeraj880/tf-guardrail"
+      - name: Propose and verify fixes
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          tfguard fix infra --out "$RUNNER_TEMP/tfguard"
+          cp "$RUNNER_TEMP"/tfguard/*.tf infra/
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: tfguard/fix-${{ github.event.pull_request.number }}
+          base: ${{ github.event.pull_request.head.ref }}
+          title: "tf-guardrail: verified security fixes for #${{ github.event.pull_request.number }}"
+          body-path: ${{ runner.temp }}/tfguard/tfguard-pr.md
+          commit-message: "tf-guardrail: apply verified security fixes"
+          add-paths: infra/*.tf
