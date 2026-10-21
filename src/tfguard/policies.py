@@ -385,6 +385,7 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "TFG-AI-01", "Comment tries to instruct automated reviewers (prompt injection)", "medium",
+        # nosemgrep: return-not-in-function -- false positive: the return is inside a lambda
         "file", (), lambda block, module: [],
         fixable=False,
         guidance=(

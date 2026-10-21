@@ -76,11 +76,13 @@ def pr_body(run: FixRun) -> str:
     flagged = [r for r in run.results if r.outcome == "FLAGGED"]
     if flagged:
         lines += ["> [!WARNING]",
+                  # nosemgrep: string-concat-in-list -- intentional implicit concatenation of one long string
                   "> **Possible prompt injection in this PR.** These comments try to instruct "
                   "automated reviewers. They were not followed and were left in place for a human:"]
         lines += [f"> - `{r.address.removeprefix('file.')}`: {r.messages[0]}" for r in flagged]
         lines += [""]
     lines += [
+        # nosemgrep: string-concat-in-list -- intentional implicit concatenation of one long string
         f"{k['findings_before']} findings before, **{k['findings_after']} after**. "
         f"Every change below passed the deterministic verifier: it resolves its finding, "
         f"stays inside the policy's allowed scope, and deletes, disables or suppresses nothing.",
@@ -115,6 +117,7 @@ def pr_body(run: FixRun) -> str:
         lines += ["", "<details><summary>Fixer notes</summary>", ""]
         lines += [f"- `{r.address}`: {r.notes}" for r in notes]
         lines += ["", "</details>"]
+    # nosemgrep: string-concat-in-list -- intentional implicit concatenation of one long string
     lines += ["", f"_fix rate {k['fix_rate']}, first-try rate {k['first_try_rate']}, "
               f"avg attempts {k['avg_attempts']}_"]
     return "\n".join(lines) + "\n"
