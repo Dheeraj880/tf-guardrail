@@ -1,5 +1,7 @@
 # tf-guardrail
 
+[![ci](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/ci.yml/badge.svg)](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/ci.yml) [![codeql](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/codeql.yml/badge.svg)](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/codeql.yml) [![semgrep](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/semgrep.yml/badge.svg)](https://github.com/Dheeraj880/tf-guardrail/actions/workflows/semgrep.yml)
+
 A policy-as-code gate for Terraform that blocks insecure AWS infrastructure in pull
 requests, and auto-remediates it **only when a deterministic verifier can prove the
 fix is honest**.
@@ -157,6 +159,27 @@ tfguard fix examples/vulnerable --out out-live
 | TFG-IAM-01 | critical | policy document allows `*` on `*` | actions/resources of that statement (always REVIEW) |
 | TFG-LOG-01 | medium | CloudTrail log validation off | `enable_log_file_validation` |
 | TFG-AI-01 | medium | comment tries to instruct automated reviewers (prompt injection) | never auto-fixed; flagged for a human |
+
+## Security
+
+Every push and pull request runs three security workflows, and findings land in the repo's **Security → Code scanning** tab as SARIF.
+
+| Workflow | What it does |
+|---|---|
+| [`codeql.yml`](.github/workflows/codeql.yml) | CodeQL `security-extended` queries on the Python source **and** on the GitHub Actions workflows |
+| [`semgrep.yml`](.github/workflows/semgrep.yml) | Semgrep community rulesets (`p/python`, `p/secrets`, `p/github-actions`) plus this project's own rules, uploaded as SARIF |
+| [`dependabot.yml`](.github/dependabot.yml) | Weekly grouped updates for Python dependencies and for the pinned Actions |
+
+**Custom Semgrep rules** ([`.semgrep/tfguard.yml`](.semgrep/tfguard.yml)) encode this tool's trust boundary, so a future change can't quietly break it. Each rule has positive and negative test cases ([`.semgrep/tfguard.py`](.semgrep/tfguard.py)), CI runs `semgrep --test` first, and any finding from these rules fails the build:
+
+- **`tfguard-unverified-fix-accepted`** — any module produced by `apply_edits()` from a model proposal must go through `verifier.verify()` before it is kept. This is the tool's core guarantee, enforced in CI rather than by convention.
+- **`tfguard-untrusted-text-to-dangerous-sink`** (taint) — Terraform under review (which can carry prompt-injection comments) and the model's tool-call output must never reach `eval`/`exec`, `subprocess`, unsafe deserialization or a filesystem path. One flow is triaged inline in `cli.py`: output file names come from the scanned directory, and `apply_edits()` rejects any edit that names a file outside the module.
+
+**Supply chain:** every third-party Action is pinned to a full commit SHA (Dependabot keeps the pins current), workflows default to `contents: read`, and checkouts don't persist credentials. The first Semgrep scan flagged the mutable `@v4`-style tags; pinning them is what fixed it.
+
+**Triage:** community-rule false positives are suppressed inline with a `# nosemgrep: <rule> -- <reason>` comment, so every suppression is reviewable in the diff.
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Limitations
 

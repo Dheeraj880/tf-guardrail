@@ -27,6 +27,7 @@ where = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
+extend-exclude = [".semgrep"]
 line-length = 110
 target-version = "py310"
 

@@ -57,7 +57,10 @@ def cmd_fix(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     for name, text in run.patched.items():
-        (out / name).write_text(text, encoding="utf-8")
+        # Triaged: `name` is a file that already existed in the scanned directory.
+        # apply_edits() rejects any edit naming a file outside the module, so the
+        # model cannot introduce a new path here.
+        (out / name).write_text(text, encoding="utf-8")  # nosemgrep: tfguard-untrusted-text-to-dangerous-sink
     (out / "tfguard-fix.patch").write_text(run.unified_diff(), encoding="utf-8")
     (out / "tfguard-pr.md").write_text(pr_body(run), encoding="utf-8")
     (out / "tfguard-report.json").write_text(
